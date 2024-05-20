@@ -59,10 +59,6 @@ func root(_ *cobra.Command, _ []string) {
 
 	c := colly.NewCollector()
 
-	c.OnHTML("td", func(e *colly.HTMLElement) {
-		e.Request.Visit(e.Attr("table"))
-	})
-
 	c.OnError(func(r *colly.Response, err error) {
 		fmt.Println("Request URL:", r.Request.URL, "failed with response:", r, "\nError:", err)
 	})
@@ -97,7 +93,7 @@ func root(_ *cobra.Command, _ []string) {
 				}
 				// Convert from any to DKK
 			} else {
-				if strings.ToUpper(currencyFrom) == strings.ToUpper(currency) {
+				if strings.EqualFold(currencyFrom, currency) {
 					// Output
 					if debug {
 						fmt.Println("Sale exchange:", sale/100)
@@ -110,7 +106,10 @@ func root(_ *cobra.Command, _ []string) {
 			}
 		})
 	})
-	c.Visit(url)
+	err := c.Visit(url)
+	if err != nil {
+		fmt.Println("Visit url error:", err)
+	}
 }
 
 func containsString(stringArr []string, s string) bool {
