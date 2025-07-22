@@ -163,16 +163,6 @@ func runConverter(_ *cobra.Command, _ []string) {
 }
 
 // --- Helper Functions ---
-
-func containsString(stringArr []string, s string) bool {
-	for _, a := range stringArr {
-		if s == strings.ToUpper(a) {
-			return true
-		}
-	}
-	return false
-}
-
 func normalizeNumber(old string) string {
 	return strings.Replace(old, ",", ".", -1)
 }
