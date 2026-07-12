@@ -41,11 +41,11 @@ still works.
 ```bash
   -a, --amount float   Set amount to convert (default 1)
   -f, --from string    Choose currency to convert from (default "DKK")
-  -h, --help           help for currency-converter
+  -h, --help           help for cconv
       --no-cache       Bypass the local cache and fetch fresh rates
   -t, --to strings     Choose currency to convert to (eg. eur,dkk). Default is all.
   -v, --verbose        Enable verbose mode
-      --version        version for currency-converter
+      --version        version for cconv
 ```
 
 ### Caching
@@ -54,3 +54,19 @@ fetched rates are cached under your user cache directory (e.g.
 `~/.cache/cconv/rates.xml`). Cached rates from the current day are reused
 directly; older ones are re-checked periodically in case newer rates have been
 published. Use `--no-cache` to force a fresh fetch.
+
+### Shell completion
+`cconv` can generate completion scripts (with currency-code suggestions for
+`--from`/`--to` and the positional arguments) for bash, zsh, fish and
+PowerShell:
+```bash
+# bash (current session)
+source <(cconv completion bash)
+
+# zsh (persistent)
+cconv completion zsh > "${fpath[1]}/_cconv"
+
+# fish (persistent)
+cconv completion fish > ~/.config/fish/completions/cconv.fish
+```
+Run `cconv completion --help` for per-shell installation details.

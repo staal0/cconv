@@ -22,7 +22,7 @@ import (
 var Build string
 
 const (
-	appName string = "currency-converter"
+	appName string = "cconv"
 
 	// ratesURL is Danmarks Nationalbank's daily exchange rate feed. It publishes
 	// the official reference rates as DKK per 100 units of each foreign currency.
@@ -58,10 +58,14 @@ var (
 	noCache      bool
 
 	rootCmd = &cobra.Command{
-		Use:     appName,
+		Use:     appName + " [amount] [from] [to...]",
 		Short:   "Currency converter using official Danish exchange rates",
 		Run:     runConverter,
 		Version: Build,
+		// Accept positional currency/amount args even though a subcommand
+		// (completion) is registered; otherwise cobra rejects them as unknown
+		// commands.
+		Args: cobra.ArbitraryArgs,
 	}
 )
 
@@ -71,6 +75,14 @@ func init() {
 	rootCmd.PersistentFlags().Float64VarP(&amount, "amount", "a", 1, "Set amount to convert")
 	rootCmd.PersistentFlags().BoolVarP(&debug, "verbose", "v", false, "Enable verbose mode")
 	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "Bypass the local cache and fetch fresh rates")
+
+	// Suggest currency codes when completing the positional arguments and the
+	// --from/--to flags.
+	rootCmd.ValidArgsFunction = completeCurrencies
+	_ = rootCmd.RegisterFlagCompletionFunc("from", completeCurrencies)
+	_ = rootCmd.RegisterFlagCompletionFunc("to", completeCurrencies)
+
+	rootCmd.AddCommand(completionCmd)
 }
 
 func main() {
@@ -172,6 +184,76 @@ func applyPositionalArgs(cmd *cobra.Command, args []string) {
 	if len(args) > 0 && !cmd.Flags().Changed("to") {
 		currencyTo = args
 	}
+}
+
+// completionCmd generates a shell completion script for the given shell.
+var completionCmd = &cobra.Command{
+	Use:   "completion [bash|zsh|fish|powershell]",
+	Short: "Generate the autocompletion script for the specified shell",
+	Long: `Generate the autocompletion script for cconv for the specified shell.
+
+Bash:
+  $ source <(cconv completion bash)          # current session
+  $ cconv completion bash | sudo tee /etc/bash_completion.d/cconv   # persist
+
+Zsh:
+  $ cconv completion zsh > "${fpath[1]}/_cconv"   # then restart your shell
+
+Fish:
+  $ cconv completion fish | source           # current session
+  $ cconv completion fish > ~/.config/fish/completions/cconv.fish   # persist
+
+PowerShell:
+  PS> cconv completion powershell | Out-String | Invoke-Expression`,
+	DisableFlagsInUseLine: true,
+	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
+	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return cmd.Root().GenBashCompletionV2(os.Stdout, true)
+		case "zsh":
+			return cmd.Root().GenZshCompletion(os.Stdout)
+		case "fish":
+			return cmd.Root().GenFishCompletion(os.Stdout, true)
+		case "powershell":
+			return cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
+		}
+		return nil
+	},
+}
+
+// completeCurrencies is the shell-completion function for currency codes.
+func completeCurrencies(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	return currencyCodes(), cobra.ShellCompDirectiveNoFileComp
+}
+
+// currencyCodes returns the known currency codes in lowercase (matching how they
+// are typed). It prefers the cached rates so suggestions track the live currency
+// set, and falls back to a static list before any rates have been cached.
+func currencyCodes() []string {
+	if path := cachePath(); path != "" {
+		if body, err := os.ReadFile(path); err == nil {
+			if rates, _, err := parseRates(body); err == nil {
+				codes := make([]string, 0, len(rates)+1)
+				for code := range rates {
+					codes = append(codes, strings.ToLower(code))
+				}
+				codes = append(codes, "dkk") // Reference currency, not in the feed.
+				sort.Strings(codes)
+				return codes
+			}
+		}
+	}
+	return fallbackCurrencyCodes
+}
+
+// fallbackCurrencyCodes lists the currencies Nationalbanken publishes, used for
+// completion until the first fetch populates the cache.
+var fallbackCurrencyCodes = []string{
+	"aud", "brl", "cad", "chf", "cny", "czk", "dkk", "eur", "gbp", "hkd",
+	"huf", "idr", "ils", "inr", "isk", "jpy", "krw", "mxn", "myr", "nok",
+	"nzd", "php", "pln", "ron", "sek", "sgd", "thb", "try", "usd", "xdr", "zar",
 }
 
 // fetchRates returns the exchange rates keyed by currency code, the date they were
