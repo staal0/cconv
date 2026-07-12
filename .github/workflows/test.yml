@@ -1,0 +1,19 @@
+name: Go Test
+on:
+  push:
+  schedule:
+    # Daily canary so a change to Nationalbanken's feed is caught even without a push.
+    - cron: '0 7 * * *'
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: go test
+        run: go test ./...

@@ -147,12 +147,14 @@ func runConverter(cmd *cobra.Command, args []string) {
 			continue
 		}
 
-		// Cross-currency conversion. Both rates share the same DKK-per-100-units
-		// basis, so the per-100 factor cancels out: (amount * from_rate) / to_rate.
-		finalAmount := (amount * fromRate) / toRate
-
-		fmt.Println(toUpper, toFixed(finalAmount, 3))
+		fmt.Println(toUpper, toFixed(convert(amount, fromRate, toRate), 3))
 	}
+}
+
+// convert performs a cross-currency conversion. Both rates share the same
+// DKK-per-100-units basis, so the per-100 factor cancels out.
+func convert(amount, fromRate, toRate float64) float64 {
+	return (amount * fromRate) / toRate
 }
 
 // applyPositionalArgs interprets positional arguments as "[amount] [from] [to...]".
