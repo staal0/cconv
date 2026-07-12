@@ -5,7 +5,7 @@
 class Cconv < Formula
   desc ""
   homepage ""
-  version "1.0.2"
+  version "1.2.0"
 
   depends_on "git"
 
