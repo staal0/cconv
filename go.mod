@@ -2,7 +2,7 @@ module cconv
 
 go 1.24.0
 
-toolchain go1.24.5
+toolchain go1.26.5
 
 require (
 	github.com/gocolly/colly v1.2.0
