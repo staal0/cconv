@@ -11,8 +11,8 @@ class Cconv < Formula
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/staal0/cconv/releases/download/v1.0.2/cconv_Darwin_x86_64.tar.gz"
-      sha256 "80b0309eb517ea6301ca87c80a55d88d6a1eae22608162558985d30e8ea21498"
+      url "https://github.com/staal0/cconv/archive/refs/tags/v1.1.0.tar.gz"
+      sha256 "f6897d8ed754038016561d5d1a3d869453c59c9a2a8a8da02698ba9f5bd83fd0"
 
       def install
         bin.install "cconv"
