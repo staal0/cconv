@@ -164,7 +164,7 @@ func runConverter(_ *cobra.Command, _ []string) {
 
 // --- Helper Functions ---
 func normalizeNumber(old string) string {
-	return strings.Replace(old, ",", ".", -1)
+	return strings.ReplaceAll(old, ",", ".")
 }
 
 func round(num float64) int {
