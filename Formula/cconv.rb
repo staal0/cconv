@@ -5,41 +5,41 @@
 class Cconv < Formula
   desc ""
   homepage ""
-  version "1.0.2"
+  version "1.2.0"
 
   depends_on "git"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/staal0/cconv/archive/refs/tags/v1.1.0.tar.gz"
-      sha256 "f6897d8ed754038016561d5d1a3d869453c59c9a2a8a8da02698ba9f5bd83fd0"
+      url "https://github.com/staal0/cconv/releases/download/v1.2.0/cconv_Darwin_x86_64.tar.gz"
+      sha256 "c6fbca3bed6c79c4f55e0413c5e2bc6025efb49679ca554ed84a7f4d9aef8911"
 
-      def install
+      define_method(:install) do
         bin.install "cconv"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/staal0/cconv/releases/download/v1.0.2/cconv_Darwin_arm64.tar.gz"
-      sha256 "9622a4aaccab719db396f05f1df2ab691e09b1eb07d1fd06ef6f6287543ac3a7"
+      url "https://github.com/staal0/cconv/releases/download/v1.2.0/cconv_Darwin_arm64.tar.gz"
+      sha256 "53633a2131ca4d73d5753033e17f2327dff1b4a9ec35b6e2c5b7f2ae7c4bd164"
 
-      def install
+      define_method(:install) do
         bin.install "cconv"
       end
     end
   end
 
   on_linux do
-    if Hardware::CPU.intel? and Hardware::CPU.is_64_bit?
-      url "https://github.com/staal0/cconv/releases/download/v1.0.2/cconv_Linux_x86_64.tar.gz"
-      sha256 "cb7cb98a7c7ae832b95b8c68772d6573c817eb26203714466a1ccac1cb9e1146"
-      def install
+    if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
+      url "https://github.com/staal0/cconv/releases/download/v1.2.0/cconv_Linux_x86_64.tar.gz"
+      sha256 "26538c6469f4f0f06a694b810a4dcaac06a1f54ce2d1adfcc83fd451871227c5"
+      define_method(:install) do
         bin.install "cconv"
       end
     end
-    if Hardware::CPU.arm? and Hardware::CPU.is_64_bit?
-      url "https://github.com/staal0/cconv/releases/download/v1.0.2/cconv_Linux_arm64.tar.gz"
-      sha256 "7f394a5310b832e703d554c452403da495a04606563fe58846d38714c020f085"
-      def install
+    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
+      url "https://github.com/staal0/cconv/releases/download/v1.2.0/cconv_Linux_arm64.tar.gz"
+      sha256 "1cb1f004b98c5bc718d651f6840d7e56817be89a53c582bd49123ab2baca2a1b"
+      define_method(:install) do
         bin.install "cconv"
       end
     end
