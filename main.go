@@ -1,14 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"log"
 	"math"
+	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/gocolly/colly"
 	"github.com/spf13/cobra"
 )
 
@@ -17,13 +23,31 @@ var Build string
 
 const (
 	appName string = "currency-converter"
+
+	// ratesURL is Danmarks Nationalbank's daily exchange rate feed. It publishes
+	// the official reference rates as DKK per 100 units of each foreign currency.
+	ratesURL string = "https://www.nationalbanken.dk/api/currencyratesxml?lang=en"
+
+	// cacheFile is the name of the cached feed inside the user cache directory.
+	cacheFile string = "cconv/rates.xml"
+
+	// cacheTTL throttles how often we re-check the feed when the cached rates are
+	// not yet from today. Rates publish around 16:00 CET on business days, so a
+	// short window catches the daily update without hammering the API on
+	// weekends and holidays when nothing new is published.
+	cacheTTL time.Duration = 3 * time.Hour
 )
 
-// Rate holds the buy and sale values for a currency.
-type Rate struct {
-	Buy        float64
-	Sale       float64
-	LastUpdate string
+// exchangeRatesXML mirrors the structure of Nationalbanken's currency rate feed.
+type exchangeRatesXML struct {
+	DailyRates struct {
+		Date       string `xml:"id,attr"`
+		Currencies []struct {
+			Code string `xml:"code,attr"`
+			Desc string `xml:"desc,attr"`
+			Rate string `xml:"rate,attr"`
+		} `xml:"currency"`
+	} `xml:"dailyrates"`
 }
 
 var (
@@ -31,10 +55,11 @@ var (
 	currencyTo   []string
 	amount       float64
 	debug        bool
+	noCache      bool
 
 	rootCmd = &cobra.Command{
 		Use:     appName,
-		Short:   "Simple fetch and convert currency tool",
+		Short:   "Currency converter using official Danish exchange rates",
 		Run:     runConverter,
 		Version: Build,
 	}
@@ -45,6 +70,7 @@ func init() {
 	rootCmd.PersistentFlags().StringSliceVarP(&currencyTo, "to", "t", []string{}, "Choose currency to convert to (eg. eur,dkk). Default is all.")
 	rootCmd.PersistentFlags().Float64VarP(&amount, "amount", "a", 1, "Set amount to convert")
 	rootCmd.PersistentFlags().BoolVarP(&debug, "verbose", "v", false, "Enable verbose mode")
+	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "Bypass the local cache and fetch fresh rates")
 }
 
 func main() {
@@ -54,119 +80,230 @@ func main() {
 }
 
 // runConverter contains the main application logic.
-func runConverter(_ *cobra.Command, _ []string) {
-	url := "https://www.nykredit.dk/dit-liv/valutakurser/noteringskurser/"
+func runConverter(cmd *cobra.Command, args []string) {
+	applyPositionalArgs(cmd, args)
+
 	fmt.Println(strings.ToUpper(currencyFrom), amount)
 
-	c := colly.NewCollector()
+	// Rates are DKK per 100 units of the given currency, keyed by currency code.
+	rates, lastUpdate, err := fetchRates()
+	if err != nil {
+		log.Fatalf("Failed to fetch exchange rates: %v", err)
+	}
 
-	// exchangeRates will store all scraped currency data with the currency code as the key.
-	exchangeRates := make(map[string]Rate)
+	// DKK is the reference currency and is not part of the feed. Since rates are
+	// quoted per 100 units, DKK itself is 100.
+	rates["DKK"] = 100.0
 
-	c.OnError(func(r *colly.Response, err error) {
-		fmt.Println("Request URL:", r.Request.URL, "failed with response:", r, "\nError:", err)
-	})
+	if debug {
+		fmt.Println("---")
+		fmt.Println("Finished fetching. Found", len(rates), "currencies.")
+		fmt.Println("Exchange rates last updated:", lastUpdate)
+		fmt.Println("---")
+	}
 
-	// PHASEN 1: SCRAPING
-	// This callback scrapes all the data from the table first.
-	c.OnHTML("table > tbody > tr", func(el *colly.HTMLElement) {
-		currencyCode := el.ChildText("td:nth-child(3)")
-		if currencyCode == "" {
-			return // Skip rows that aren't currency rows
-		}
+	fromUpper := strings.ToUpper(currencyFrom)
+	fromRate, ok := rates[fromUpper]
+	if !ok {
+		fmt.Printf("Error: The 'from' currency '%s' was not found.\n", currencyFrom)
+		return
+	}
 
-		saleStr := normalizeNumber(el.ChildText("td:nth-child(4)"))
-		buyStr := normalizeNumber(el.ChildText("td:nth-child(5)"))
-		lastUpdateStr := el.ChildText("td:nth-child(7)")
-
-		sale, err := strconv.ParseFloat(saleStr, 64)
-		if err != nil {
-			if debug {
-				fmt.Printf("Could not parse sale rate for %s: %v\n", currencyCode, err)
+	// Determine which currencies to convert to.
+	var targetCurrencies []string
+	if len(currencyTo) > 0 {
+		// If --to is specified, use those.
+		targetCurrencies = currencyTo
+	} else {
+		// If --to is not specified, gather all available currencies.
+		for code := range rates {
+			if code != fromUpper { // Don't convert a currency to itself.
+				targetCurrencies = append(targetCurrencies, code)
 			}
-			return
 		}
+		// Sort for consistent, readable output.
+		sort.Strings(targetCurrencies)
+	}
 
-		buy, err := strconv.ParseFloat(buyStr, 64)
-		if err != nil {
-			if debug {
-				fmt.Printf("Could not parse buy rate for %s: %v\n", currencyCode, err)
-			}
-			return
-		}
+	// Loop through each requested 'to' currency and perform the conversion.
+	for _, toCurrency := range targetCurrencies {
+		toUpper := strings.ToUpper(toCurrency)
 
-		// Store the parsed rates in our map.
-		exchangeRates[currencyCode] = Rate{Buy: buy, Sale: sale, LastUpdate: lastUpdateStr}
-	})
-
-	// PHASE 2: CALCULATION
-	// This callback runs *after* the scraping is complete.
-	c.OnScraped(func(r *colly.Response) {
-		if debug {
-			fmt.Println("---")
-			fmt.Println("Finished scraping. Found", len(exchangeRates), "currencies.")
-			fmt.Println("Exchange rates last updated:", exchangeRates[strings.ToUpper(currencyFrom)].LastUpdate)
-			fmt.Println("---")
-		}
-
-		// Add DKK to the map manually for easier calculations. Also this is not in the table list.
-		exchangeRates["DKK"] = Rate{Buy: 100.0, Sale: 100.0, LastUpdate: "Live Rate"}
-
-		// Get the 'from' rate. We use the Buy rate for 'from' conversions.
-		fromUpper := strings.ToUpper(currencyFrom)
-		fromRate, ok := exchangeRates[fromUpper]
+		toRate, ok := rates[toUpper]
 		if !ok {
-			fmt.Printf("Error: The 'from' currency '%s' was not found.\n", currencyFrom)
-			return
+			fmt.Printf("Error: The 'to' currency '%s' not found, skipping...\n", toCurrency)
+			continue
 		}
 
-		// Determine which currencies to convert to.
-		var targetCurrencies []string
-		if len(currencyTo) > 0 {
-			// If --to is specified, use those.
-			targetCurrencies = currencyTo
-		} else {
-			// If --to is not specified, gather all available currencies.
-			for code := range exchangeRates {
-				if code != fromUpper { // Don't convert a currency to itself.
-					targetCurrencies = append(targetCurrencies, code)
-				}
-			}
-			// Sort for consistent, readable output.
-			sort.Strings(targetCurrencies)
-		}
+		// Cross-currency conversion. Both rates share the same DKK-per-100-units
+		// basis, so the per-100 factor cancels out: (amount * from_rate) / to_rate.
+		finalAmount := (amount * fromRate) / toRate
 
-		// Loop through each requested 'to' currency and perform the conversion.
-		for _, toCurrency := range targetCurrencies {
-			toUpper := strings.ToUpper(toCurrency)
-
-			// Get the 'to' rate. We use the Sale rate for 'to' conversions.
-			toRate, ok := exchangeRates[toUpper]
-			if !ok {
-				fmt.Printf("Error: The 'to' currency '%s' not found, skipping...\n", toCurrency)
-				continue
-			}
-
-			// Perform the cross-currency conversion.
-			// Formula: (amount * from_rate) / to_rate
-			// We use the 'Buy' rate for the 'from' currency and 'Sale' for the 'to' currency.
-			finalAmount := (amount * fromRate.Buy) / toRate.Sale
-
-			fmt.Println(toUpper, toFixed(finalAmount, 3))
-		}
-	})
-
-	// Start the scrape
-	if err := c.Visit(url); err != nil {
-		log.Fatalf("Failed to visit URL: %v", err)
+		fmt.Println(toUpper, toFixed(finalAmount, 3))
 	}
 }
 
-// --- Helper Functions ---
-func normalizeNumber(old string) string {
-	return strings.ReplaceAll(old, ",", ".")
+// applyPositionalArgs interprets positional arguments as "[amount] [from] [to...]".
+// The leading argument is treated as the amount when it is numeric, otherwise as
+// the 'from' currency. Any explicitly set flag (-a/-f/-t) takes precedence over the
+// corresponding positional argument.
+func applyPositionalArgs(cmd *cobra.Command, args []string) {
+	if len(args) == 0 {
+		return
+	}
+
+	// A numeric leading argument is the amount.
+	if v, err := strconv.ParseFloat(args[0], 64); err == nil {
+		if !cmd.Flags().Changed("amount") {
+			amount = v
+		}
+		args = args[1:]
+	}
+
+	// The next argument is the 'from' currency.
+	if len(args) > 0 {
+		if !cmd.Flags().Changed("from") {
+			currencyFrom = args[0]
+		}
+		args = args[1:]
+	}
+
+	// Any remaining arguments are the 'to' currencies.
+	if len(args) > 0 && !cmd.Flags().Changed("to") {
+		currencyTo = args
+	}
 }
 
+// fetchRates returns the exchange rates keyed by currency code, the date they were
+// published, and any error. It serves cached rates when possible and only hits the
+// network when the cache is missing, stale, or bypassed with --no-cache.
+func fetchRates() (map[string]float64, string, error) {
+	path := cachePath()
+
+	// Serve from cache when it is still current.
+	if path != "" && !noCache {
+		if body, err := os.ReadFile(path); err == nil {
+			if rates, date, err := parseRates(body); err == nil && cacheIsFresh(path, date) {
+				if debug {
+					fmt.Printf("Using cached exchange rates (dated %s) from %s\n", date, path)
+				}
+				return rates, date, nil
+			}
+		}
+	}
+
+	// Download fresh rates.
+	body, err := downloadRates()
+	if err != nil {
+		// Fall back to a stale cache so a network hiccup doesn't break the tool.
+		if path != "" {
+			if stale, rerr := os.ReadFile(path); rerr == nil {
+				if rates, date, perr := parseRates(stale); perr == nil {
+					if debug {
+						fmt.Printf("Download failed (%v); using stale cache dated %s.\n", err, date)
+					}
+					return rates, date, nil
+				}
+			}
+		}
+		return nil, "", err
+	}
+
+	if path != "" {
+		writeCache(path, body)
+	}
+	return parseRates(body)
+}
+
+// cacheIsFresh reports whether a cache holding rates dated `date` can be reused.
+// Today's rates are the newest that can exist, so they are always fresh; older
+// rates are reused only until the cache file passes its TTL, which throttles
+// rechecks when no newer rates have been published yet (weekends, holidays,
+// before the ~16:00 CET publish time).
+func cacheIsFresh(path, date string) bool {
+	if date == today() {
+		return true
+	}
+	info, err := os.Stat(path)
+	return err == nil && time.Since(info.ModTime()) < cacheTTL
+}
+
+// downloadRates fetches the raw feed body from Nationalbanken.
+func downloadRates() ([]byte, error) {
+	resp, err := http.Get(ratesURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %s from %s", resp.Status, ratesURL)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// parseRates decodes the feed body into rates keyed by currency code plus the
+// publication date.
+func parseRates(body []byte) (map[string]float64, string, error) {
+	// The feed is served with a UTF-8 BOM, which encoding/xml rejects.
+	body = bytes.TrimPrefix(body, []byte{0xEF, 0xBB, 0xBF})
+
+	var data exchangeRatesXML
+	if err := xml.Unmarshal(body, &data); err != nil {
+		return nil, "", err
+	}
+
+	rates := make(map[string]float64)
+	for _, cur := range data.DailyRates.Currencies {
+		rate, err := strconv.ParseFloat(cur.Rate, 64)
+		if err != nil {
+			if debug {
+				fmt.Printf("Could not parse rate for %s: %v\n", cur.Code, err)
+			}
+			continue
+		}
+		rates[strings.ToUpper(cur.Code)] = rate
+	}
+
+	if len(rates) == 0 {
+		return nil, "", fmt.Errorf("no exchange rates found in feed")
+	}
+	return rates, data.DailyRates.Date, nil
+}
+
+// cachePath returns the path to the cached feed, or "" if no cache dir is available.
+func cachePath() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, filepath.FromSlash(cacheFile))
+}
+
+// writeCache persists the raw feed body to disk. Failures are non-fatal: the tool
+// still works without a cache, just without its speed-up.
+func writeCache(path string, body []byte) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if debug {
+			fmt.Printf("Could not create cache dir: %v\n", err)
+		}
+		return
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil && debug {
+		fmt.Printf("Could not write cache: %v\n", err)
+	}
+}
+
+// today returns the current date in Copenhagen (where the rates are set), so the
+// cache freshness check lines up with the feed's publication date.
+func today() string {
+	if loc, err := time.LoadLocation("Europe/Copenhagen"); err == nil {
+		return time.Now().In(loc).Format("2006-01-02")
+	}
+	return time.Now().Format("2006-01-02")
+}
+
+// --- Helper Functions ---
 func round(num float64) int {
 	return int(num + math.Copysign(0.5, num))
 }
