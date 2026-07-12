@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="assets/cconv-logo.svg" alt="cconv" width="440">
-</p>
+<img src="assets/cconv-logo.svg" alt="cconv" width="440">
 
 ## Currency converter using official Danish exchange rates
 It will convert to and from currencies using Danmarks Nationalbank's official exchange rates.
