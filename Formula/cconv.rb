@@ -5,22 +5,22 @@
 class Cconv < Formula
   desc ""
   homepage ""
-  version "1.2.0"
+  version "1.2.1"
 
   depends_on "git"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/staal0/cconv/releases/download/v1.2.0/cconv_Darwin_x86_64.tar.gz"
-      sha256 "c6fbca3bed6c79c4f55e0413c5e2bc6025efb49679ca554ed84a7f4d9aef8911"
+      url "https://github.com/staal0/cconv/releases/download/v1.2.1/cconv_Darwin_x86_64.tar.gz"
+      sha256 "727b5be8f4c0fedcd0bc27413958a057ad662f6ea2d74235dd766d6f88d3f71d"
 
       define_method(:install) do
         bin.install "cconv"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/staal0/cconv/releases/download/v1.2.0/cconv_Darwin_arm64.tar.gz"
-      sha256 "53633a2131ca4d73d5753033e17f2327dff1b4a9ec35b6e2c5b7f2ae7c4bd164"
+      url "https://github.com/staal0/cconv/releases/download/v1.2.1/cconv_Darwin_arm64.tar.gz"
+      sha256 "a60395a4986cf9b8b67c2bfee7ba07a85e79c113d0105b6e55ecefa53f394f6f"
 
       define_method(:install) do
         bin.install "cconv"
@@ -30,15 +30,15 @@ class Cconv < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/staal0/cconv/releases/download/v1.2.0/cconv_Linux_x86_64.tar.gz"
-      sha256 "26538c6469f4f0f06a694b810a4dcaac06a1f54ce2d1adfcc83fd451871227c5"
+      url "https://github.com/staal0/cconv/releases/download/v1.2.1/cconv_Linux_x86_64.tar.gz"
+      sha256 "8a66b6ed444848308d82407214e07d421960178119c2eef7d777050b1e1ffaa0"
       define_method(:install) do
         bin.install "cconv"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/staal0/cconv/releases/download/v1.2.0/cconv_Linux_arm64.tar.gz"
-      sha256 "1cb1f004b98c5bc718d651f6840d7e56817be89a53c582bd49123ab2baca2a1b"
+      url "https://github.com/staal0/cconv/releases/download/v1.2.1/cconv_Linux_arm64.tar.gz"
+      sha256 "bbb6d68ad76370fab20dd95310cd7103410a75641590762d6cbb590e8748e2db"
       define_method(:install) do
         bin.install "cconv"
       end
